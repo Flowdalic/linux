@@ -1,2 +1,0 @@
-- return EINVAL (instead of EBUSY)
-- follow common pattern when quoting commits in commit messages
