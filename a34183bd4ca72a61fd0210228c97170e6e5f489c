@@ -1,1 +1,2 @@
 - Use correct member name 'bus_register_error'
+- Only print out error code if it is non-zero
