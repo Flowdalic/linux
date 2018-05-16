@@ -1,0 +1,1 @@
+Also record ENOMEM error if initial alloc fails
