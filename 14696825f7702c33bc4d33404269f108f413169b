@@ -1,1 +1,2 @@
 - Also print out the bus name
+- Use pr_err() instead of printk()
