@@ -2343,6 +2343,8 @@ static int __init bcache_init(void)
 
 	return 0;
 err:
+	kobject_del(bcache_kobj);
+	destroy_workqueue(bcache_wg);
 	bcache_exit();
 	return -ENOMEM;
 }
