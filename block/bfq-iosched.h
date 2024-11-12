@@ -329,8 +329,11 @@ struct bfq_queue {
 	 */
 	unsigned int requests_within_timer;
 
-	/* pid of the process owning the queue, used for logging purposes */
-	pid_t pid;
+	/* Holds a reference to the process owning the queue. May be
+	 * NULL in cases this queue is shared by multiple processes or
+	 * if this is the fallback OOM queue.
+	 */
+	struct task_struct *task;
 
 	/*
 	 * Pointer to the bfq_io_cq owning the bfq_queue, set to %NULL
@@ -1161,13 +1164,15 @@ void bfq_reassign_last_bfqq(struct bfq_queue *cur_bfqq,
 
 /* --------------- end of interface of B-WF2Q+ ---------------- */
 
+#define BFQQ_PID(bfqq) (bfqq->task ? bfqq->task->pid : -1)
+
 /* Logging facilities. */
 static inline void bfq_bfqq_name(struct bfq_queue *bfqq, char *str, int len)
 {
 	char type = bfq_bfqq_sync(bfqq) ? 'S' : 'A';
 
-	if (bfqq->pid != -1)
-		snprintf(str, len, "bfq%d%c", bfqq->pid, type);
+	if (BFQQ_PID(bfqq) != -1)
+		snprintf(str, len, "bfq%d%c", BFQQ_PID(bfqq), type);
 	else
 		snprintf(str, len, "bfqSHARED-%c", type);
 }

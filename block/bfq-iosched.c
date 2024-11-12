@@ -123,6 +123,8 @@
 #include <linux/sbitmap.h>
 #include <linux/delay.h>
 #include <linux/backing-dev.h>
+#include <linux/sched/task.h>
+#include <uapi/linux/sched/types.h>
 
 #include <trace/events/block.h>
 
@@ -760,7 +762,7 @@ bfq_rq_pos_tree_lookup(struct bfq_data *bfqd, struct rb_root *root,
 
 	bfq_log(bfqd, "rq_pos_tree_lookup %llu: returning %d",
 		(unsigned long long)sector,
-		bfqq ? bfqq->pid : 0);
+		bfqq ? BFQQ_PID(bfqq) : 0);
 
 	return bfqq;
 }
@@ -1658,7 +1660,20 @@ static void bfq_update_bfqq_wr_on_rq_arrival(struct bfq_data *bfqd,
 					     bool in_burst,
 					     bool soft_rt)
 {
+	int policy;
+
 	if (old_wr_coeff == 1 && wr_or_deserves_wr) {
+		if (bfqq->task) {
+			policy = bfqq->task->policy;
+			wr_or_deserves_wr = policy != SCHED_BATCH && policy != SCHED_IDLE;
+			if (!wr_or_deserves_wr) {
+				bfq_log_bfqq(bfqd, bfqq,
+					     "prevented wr of sched batch/idle pid %d (%s)",
+					     bfqq->task->pid, bfqq->task->comm);
+				return;
+			}
+		}
+
 		/* start a weight-raising period */
 		if (interactive) {
 			bfqq->service_from_wr = 0;
@@ -2780,7 +2795,7 @@ bfq_setup_merge(struct bfq_queue *bfqq, struct bfq_queue *new_bfqq)
 		return NULL;
 
 	bfq_log_bfqq(bfqq->bfqd, bfqq, "scheduling merge with queue %d",
-		new_bfqq->pid);
+		BFQQ_PID(new_bfqq));
 
 	/*
 	 * Merging is just a redirection: the requests of the process
@@ -3136,7 +3151,7 @@ static struct bfq_queue *bfq_merge_bfqqs(struct bfq_data *bfqd,
 	struct bfq_queue *new_bfqq = bfqq->new_bfqq;
 
 	bfq_log_bfqq(bfqd, bfqq, "merging with queue %lu",
-		(unsigned long)new_bfqq->pid);
+		(unsigned long)(BFQQ_PID(new_bfqq)));
 	/* Save weight raising and idle window of the merged queues */
 	bfq_bfqq_save_state(bfqq);
 	bfq_bfqq_save_state(new_bfqq);
@@ -3214,15 +3229,18 @@ static struct bfq_queue *bfq_merge_bfqqs(struct bfq_data *bfqd,
 	 */
 	new_bfqq->bic = NULL;
 	/*
-	 * If the queue is shared, the pid is the pid of one of the associated
-	 * processes. Which pid depends on the exact sequence of merge events
-	 * the queue underwent. So printing such a pid is useless and confusing
-	 * because it reports a random pid between those of the associated
+	 * If the queue is shared, the task is the task of one of the associated
+	 * processes. Which task depends on the exact sequence of merge events
+	 * the queue underwent. So printing such a task is useless and confusing
+	 * because it reports a random task between those of the associated
 	 * processes.
-	 * We mark such a queue with a pid -1, and then print SHARED instead of
+	 * We mark such a queue with a task NULL, and then print SHARED instead of
 	 * a pid in logging messages.
 	 */
-	new_bfqq->pid = -1;
+	if (new_bfqq->task) {
+		put_task_struct(new_bfqq->task);
+		new_bfqq->task = NULL;
+	}
 	bfqq->bic = NULL;
 
 	bfq_reassign_last_bfqq(bfqq, new_bfqq);
@@ -5405,6 +5423,9 @@ void bfq_put_queue(struct bfq_queue *bfqq)
 	if (bfqq->bfqd->last_completed_rq_bfqq == bfqq)
 		bfqq->bfqd->last_completed_rq_bfqq = NULL;
 
+	if (bfqq->task)
+		put_task_struct(bfqq->task);
+
 	WARN_ON_ONCE(!list_empty(&bfqq->fifo));
 	WARN_ON_ONCE(!RB_EMPTY_ROOT(&bfqq->sort_list));
 	WARN_ON_ONCE(bfqq->dispatched);
@@ -5592,7 +5613,7 @@ static void bfq_check_ioprio_change(struct bfq_io_cq *bic, struct bio *bio)
 }
 
 static void bfq_init_bfqq(struct bfq_data *bfqd, struct bfq_queue *bfqq,
-			  struct bfq_io_cq *bic, pid_t pid, int is_sync,
+			  struct bfq_io_cq *bic, struct task_struct *task, int is_sync,
 			  unsigned int act_idx)
 {
 	u64 now_ns = blk_time_get_ns();
@@ -5633,7 +5654,11 @@ static void bfq_init_bfqq(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 
 	bfq_mark_bfqq_IO_bound(bfqq);
 
-	bfqq->pid = pid;
+	if (task) {
+		get_task_struct(task);
+		bfqq->task = task;
+	} else
+		bfqq->task = NULL;
 
 	/* Tentative initial value to trade off between thr and lat */
 	bfqq->max_budget = (2 * bfq_max_budget(bfqd)) / 3;
@@ -5857,7 +5882,7 @@ static struct bfq_queue *bfq_get_queue(struct bfq_data *bfqd,
 				     bfqd->queue->node);
 
 	if (bfqq) {
-		bfq_init_bfqq(bfqd, bfqq, bic, current->pid,
+		bfq_init_bfqq(bfqd, bfqq, bic, current,
 			      is_sync, bfq_actuator_index(bfqd, bio));
 		bfq_init_entity(&bfqq->entity, bfqg);
 		bfq_log_bfqq(bfqd, bfqq, "allocated");
@@ -6725,7 +6750,9 @@ bfq_split_bfqq(struct bfq_io_cq *bic, struct bfq_queue *bfqq)
 	bfq_log_bfqq(bfqq->bfqd, bfqq, "splitting queue");
 
 	if (bfqq_process_refs(bfqq) == 1 && !bfqq->new_bfqq) {
-		bfqq->pid = current->pid;
+		bfqq->task = current;
+		get_task_struct(current);
+
 		bfq_clear_bfqq_coop(bfqq);
 		bfq_clear_bfqq_split_coop(bfqq);
 		return bfqq;
@@ -7240,7 +7267,7 @@ static int bfq_init_queue(struct request_queue *q, struct elevator_type *e)
 	 * Set zero as actuator index: we will pretend that
 	 * all I/O requests are for the same actuator.
 	 */
-	bfq_init_bfqq(bfqd, &bfqd->oom_bfqq, NULL, 1, 0, 0);
+	bfq_init_bfqq(bfqd, &bfqd->oom_bfqq, NULL, NULL, 0, 0);
 	bfqd->oom_bfqq.ref++;
 	bfqd->oom_bfqq.new_ioprio = BFQ_DEFAULT_QUEUE_IOPRIO;
 	bfqd->oom_bfqq.new_ioprio_class = IOPRIO_CLASS_BE;
