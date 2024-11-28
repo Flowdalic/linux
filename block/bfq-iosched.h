@@ -766,6 +766,10 @@ struct bfq_data {
 
 	/* if set to true, low-latency heuristics are enabled */
 	bool low_latency;
+	/* if set to true and if low-latency heuristics are enabled,
+	 * then those are also applied for SCHED_BATCH and SCHED_IDLE tasks.
+	 */
+	bool low_latency_for_batch_or_idle;
 	/*
 	 * Maximum factor by which the weight of a weight-raised queue
 	 * is multiplied.

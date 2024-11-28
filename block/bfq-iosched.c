@@ -1663,7 +1663,7 @@ static void bfq_update_bfqq_wr_on_rq_arrival(struct bfq_data *bfqd,
 	int policy;
 
 	if (old_wr_coeff == 1 && wr_or_deserves_wr) {
-		if (bfqq->task) {
+		if (!bfqd->low_latency_for_batch_or_idle && bfqq->task) {
 			policy = bfqq->task->policy;
 			wr_or_deserves_wr = policy != SCHED_BATCH && policy != SCHED_IDLE;
 			if (!wr_or_deserves_wr) {
@@ -7351,6 +7351,7 @@ static int bfq_init_queue(struct request_queue *q, struct elevator_type *e)
 	bfqd->bfq_burst_interval = msecs_to_jiffies(180);
 
 	bfqd->low_latency = true;
+	bfqd->low_latency_for_batch_or_idle = false;
 
 	/*
 	 * Trade-off between responsiveness and fairness.
@@ -7465,6 +7466,7 @@ SHOW_FUNCTION(bfq_max_budget_show, bfqd->bfq_user_max_budget, 0);
 SHOW_FUNCTION(bfq_timeout_sync_show, bfqd->bfq_timeout, 1);
 SHOW_FUNCTION(bfq_strict_guarantees_show, bfqd->strict_guarantees, 0);
 SHOW_FUNCTION(bfq_low_latency_show, bfqd->low_latency, 0);
+SHOW_FUNCTION(bfq_low_latency_for_batch_or_idle_show, bfqd->low_latency_for_batch_or_idle, 0);
 #undef SHOW_FUNCTION
 
 #define USEC_SHOW_FUNCTION(__FUNC, __VAR)				\
@@ -7625,6 +7627,24 @@ static ssize_t bfq_low_latency_store(struct elevator_queue *e,
 	return count;
 }
 
+static ssize_t bfq_low_latency_for_batch_or_idle_store(struct elevator_queue *e,
+				     const char *page, size_t count)
+{
+	struct bfq_data *bfqd = e->elevator_data;
+	unsigned long __data;
+	int ret;
+
+	ret = bfq_var_store(&__data, (page));
+	if (ret)
+		return ret;
+
+	if (__data > 1)
+		__data = 1;
+	bfqd->low_latency_for_batch_or_idle = __data;
+
+	return count;
+}
+
 #define BFQ_ATTR(name) \
 	__ATTR(name, 0644, bfq_##name##_show, bfq_##name##_store)
 
@@ -7639,6 +7659,7 @@ static struct elv_fs_entry bfq_attrs[] = {
 	BFQ_ATTR(timeout_sync),
 	BFQ_ATTR(strict_guarantees),
 	BFQ_ATTR(low_latency),
+	BFQ_ATTR(low_latency_for_batch_or_idle),
 	__ATTR_NULL
 };
 
