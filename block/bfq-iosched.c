@@ -1711,6 +1711,9 @@ static void bfq_update_bfqq_wr_on_rq_arrival(struct bfq_data *bfqd,
 		bfqq->entity.budget = min_t(unsigned long,
 					    bfqq->entity.budget,
 					    2 * bfq_min_budget(bfqd));
+		bfq_log_bfqq(bfqd, bfqq,
+			     "wr of queue (wr_coeff=%u, wr_cur_max_time=%lu, budget=%lu)",
+			     bfqq->wr_coeff, bfqq->wr_cur_max_time, bfqq->entity.budget);
 	} else if (old_wr_coeff > 1) {
 		if (interactive) { /* update wr coeff and duration */
 			bfqq->wr_coeff = bfqd->bfq_wr_coeff;
