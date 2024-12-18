@@ -575,10 +575,14 @@ static int bch2_rebalance_thread(void *arg)
 	struct bch_fs *c = arg;
 	struct bch_fs_rebalance *r = &c->rebalance;
 	struct moving_context ctxt;
+	struct bch_ratelimit rate = {
+		.rate = 50000  /* 50000 512-byte sectors per second ~ 1 MiB/s */
+	};
 
 	set_freezable();
+	bch2_ratelimit_reset(&rate);
 
-	bch2_moving_ctxt_init(&ctxt, c, NULL, &r->work_stats,
+	bch2_moving_ctxt_init(&ctxt, c, &rate, &r->work_stats,
 			      writepoint_ptr(&c->rebalance_write_point),
 			      true);
 
