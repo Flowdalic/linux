@@ -232,7 +232,7 @@ struct bch_ratelimit {
 	u64			next;
 
 	/*
-	 * Rate at which we want to do work, in units per nanosecond
+	 * Rate at which we want to do work, in units per second
 	 * The units here correspond to the units passed to
 	 * bch2_ratelimit_increment()
 	 */
