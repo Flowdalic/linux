@@ -180,7 +180,23 @@ void bch2_moving_ctxt_flush_all(struct moving_context *ctxt)
 {
 	move_ctxt_wait_event(ctxt, list_empty(&ctxt->reads));
 	bch2_trans_unlock_long(ctxt->trans);
+	pr_info("before closure_sync() remaining=%u, "
+		"in-flight reads: ios %u sectors %u, in-flight writes: ios %u sectors %u",
+		closure_nr_remaining(&ctxt->cl),
+		atomic_read(&ctxt->read_ios),
+		atomic_read(&ctxt->read_sectors),
+		atomic_read(&ctxt->write_ios),
+		atomic_read(&ctxt->write_sectors)
+		);
 	closure_sync(&ctxt->cl);
+	pr_info("after closure_sync() remaining=%u, "
+		"in-flight reads: ios %u sectors %u, in-flight writes: ios %u sectors %u",
+		closure_nr_remaining(&ctxt->cl),
+		atomic_read(&ctxt->read_ios),
+		atomic_read(&ctxt->read_sectors),
+		atomic_read(&ctxt->write_ios),
+		atomic_read(&ctxt->write_sectors)
+		);
 }
 
 void bch2_moving_ctxt_exit(struct moving_context *ctxt)
@@ -493,15 +509,22 @@ int bch2_move_ratelimit(struct moving_context *ctxt)
 		if (is_kthread && kthread_should_stop())
 			return 1;
 
-		if (delay)
+		if (delay) {
+			pr_info_ratelimited("got delay=%llu, invoking move_ctxt_wait_event_timeout()",
+					   delay);
 			move_ctxt_wait_event_timeout(ctxt,
 					freezing(current) ||
 					(is_kthread && kthread_should_stop()),
 					delay);
+			pr_info_ratelimited("returned from move_ctxt_wait_event_timeout()");
+		}
 
 		if (unlikely(freezing(current))) {
+			pr_info("found current is freezing, invoking bch2_moving_ctxt_flush_all()");
 			bch2_moving_ctxt_flush_all(ctxt);
+			pr_info("finished bch2_moving_ctxt_flush_all(), invoking try_to_freeze()");
 			try_to_freeze();
+			pr_info("returned from try_to_freeze()");
 		}
 	} while (delay);
 
